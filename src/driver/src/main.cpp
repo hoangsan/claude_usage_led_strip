@@ -22,6 +22,10 @@ constexpr uint32_t kFrameIntervalMs = 33;   // ~30 fps render cadence
 constexpr uint32_t kChaseStepMs     = 60;   // research.md §9
 constexpr uint32_t kWifiRetryMs     = 500;
 constexpr uint8_t  kWifiMaxRetries  = 40;   // ~20 s total
+// Floor on the visible STARTUP chase. If Wi-Fi joins faster than this, the
+// loop keeps rendering chase frames until millis() reaches this mark before
+// firing the first poll — otherwise the chase would flash by in <100 ms.
+constexpr uint32_t kStartupMinMs    = 1500;
 
 DisplayState g_state = { DisplayMode::STARTUP, {} };
 
@@ -31,13 +35,29 @@ uint32_t g_lastFrameMs  = 0;
 uint32_t g_chaseFrame   = 0;
 uint32_t g_lastChaseMs  = 0;
 
+void tickStartupFrame(uint32_t now_ms) {
+    if (now_ms - g_lastChaseMs >= kChaseStepMs) {
+        g_lastChaseMs = now_ms;
+        ++g_chaseFrame;
+    }
+    if (now_ms - g_lastFrameMs >= kFrameIntervalMs) {
+        g_lastFrameMs = now_ms;
+        LedRenderer::renderChase(g_chaseFrame, STARTUP_COLOR, NUM_OF_LED);
+    }
+}
+
 void connectWifi() {
     Serial.printf("[wifi] connecting to %s...\n", WIFI_SSID);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     uint8_t tries = 0;
     while (WiFi.status() != WL_CONNECTED && tries < kWifiMaxRetries) {
-        delay(kWifiRetryMs);
+        // Render chase frames while waiting so the strip is alive during join.
+        const uint32_t retryUntil = millis() + kWifiRetryMs;
+        while (static_cast<int32_t>(retryUntil - millis()) > 0) {
+            tickStartupFrame(millis());
+            delay(1);
+        }
         Serial.print(".");
         ++tries;
     }
@@ -112,23 +132,33 @@ void setup() {
     Serial.println();
     Serial.println("[boot] claude_usage_led");
 
+    // Bring the strip up BEFORE Wi-Fi join so the chase animation is visible
+    // throughout the join phase (which can take up to ~20 s) and the first
+    // poll. Without this the strip is dark until the first successful poll
+    // and the user never sees STARTUP.
+    LedRenderer::begin(NUM_OF_LED, LED_DATA_PIN);
+    g_state.mode      = DisplayMode::STARTUP;
+    g_state.last_poll = PollSnapshot{};
+    Serial.println("[display] STARTUP");
+
     connectWifi();
 
-    LedRenderer::begin(NUM_OF_LED, LED_DATA_PIN);
-
-    g_state.mode           = DisplayMode::STARTUP;
-    g_state.last_poll      = PollSnapshot{};
-    g_lastPollMs           = millis();
-    g_firstPollDue         = true;
-    Serial.println("[display] STARTUP");
+    g_lastPollMs   = millis();
+    g_firstPollDue = true;
 }
 
 void loop() {
     const uint32_t now_ms = millis();
 
     // ---- Poll cadence ----------------------------------------------------
-    if (g_firstPollDue ||
-        (now_ms - g_lastPollMs) >= static_cast<uint32_t>(GET_USAGE_INTERVAL_MS)) {
+    // First poll is gated by kStartupMinMs so the chase animation is visible
+    // for at least that long even when Wi-Fi joined instantly (cached AP).
+    const bool firstPollReady =
+        g_firstPollDue && now_ms >= kStartupMinMs;
+    const bool nextPollDue =
+        !g_firstPollDue &&
+        (now_ms - g_lastPollMs) >= static_cast<uint32_t>(GET_USAGE_INTERVAL_MS);
+    if (firstPollReady || nextPollDue) {
         g_firstPollDue = false;
         g_lastPollMs   = now_ms;
         doPoll(now_ms);
