@@ -46,6 +46,25 @@ test('resets_at missing throws invalid_upstream', () => {
   );
 });
 
+test('idle account (utilization 0, resets_at null) returns 0/0 without throwing', () => {
+  const payload = {
+    five_hour: { utilization: 0, resets_at: null },
+  };
+  const out = upstreamToMinimal(payload, NOW_MS);
+  assert.deepEqual(out, { utilization: 0, remaining_minutes: 0 });
+});
+
+test('resets_at null with nonzero utilization still throws (malformed upstream)', () => {
+  assert.throws(
+    () =>
+      upstreamToMinimal(
+        { five_hour: { utilization: 10, resets_at: null } },
+        NOW_MS,
+      ),
+    /invalid_upstream: five_hour.resets_at missing/,
+  );
+});
+
 test('resets_at unparseable throws invalid_upstream', () => {
   assert.throws(
     () =>

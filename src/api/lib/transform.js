@@ -37,6 +37,13 @@ export function upstreamToMinimal(payload, nowMs = Date.now()) {
   if (utilization < 0) {
     fail('five_hour.utilization is negative');
   }
+  // Idle account: upstream sends utilization=0 with resets_at=null when no
+  // 5-hour window is currently active. That's a healthy state, not an error —
+  // surface it as 0% / 0 minutes so the firmware shows an empty strip rather
+  // than the error blink.
+  if (resetsAt === null && utilization === 0) {
+    return { utilization: 0, remaining_minutes: 0 };
+  }
   if (resetsAt === undefined || resetsAt === null) {
     fail('five_hour.resets_at missing');
   }
