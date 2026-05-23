@@ -37,7 +37,7 @@ A small Node.js server runs on a machine that's already signed into Claude. It h
 
 - An **ESP32** dev board (WROOM-32, S2, S3, or C3 — any of them work)
 - A **WS2812B LED strip** (anything from a handful up to a couple hundred LEDs; **160** is the default in `config.example.h`)
-- A **5 V power supply** sized for your strip (≈ 60 mA peak per LED at full white — for the default 160-LED strip pick a 5 V supply rated **10 A or more** to keep margin; smaller strips need proportionally less)
+- A **5 V power supply** sized for your strip. This project only ever lights one band color at a time (green/yellow/red), so peak draw is far below the all-white textbook figure — for the default 160-LED strip a **5 V / 4 A** supply is comfortable (~2 A peak when the strip goes fully red at the exhausted-quota state, plus margin). Smaller strips need proportionally less; a 1 A brick will sag once the strip lights fully.
 - A few **jumper wires**, optionally a 470 Ω resistor on the data line and a 1000 µF capacitor across the strip's 5 V/GND for stability
 - A USB cable to flash the ESP32
 
