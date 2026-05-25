@@ -25,7 +25,7 @@ cp .env.example .env
 # Edit .env — set CLAUDE_ENDPOINT to https://api.anthropic.com/api/oauth/usage
 #           (or to a different upstream if needed)
 npm install
-node server.js
+node start.js
 ```
 
 Expected: the server prints `listening on http://0.0.0.0:3000` and logs every request.

@@ -72,7 +72,7 @@ npm install
 npm install -g pm2
 
 # Start the server and tell PM2 to remember it across reboots
-pm2 start server.js --name claude-usage-api
+pm2 start start.js --name claude-usage-api
 pm2 save
 
 # (Linux/macOS) wire PM2 into your init system so it comes back after a reboot.

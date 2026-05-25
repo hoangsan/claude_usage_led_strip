@@ -1,15 +1,11 @@
 // server.js
 //
-// Express bootstrap. Loads .env, wires the /five-hour route with the real
-// claudeClient + transform, exposes /health, and listens on PORT (or 3000).
-//
-// The createApp() factory exists so tests can build an app without crashing
-// the process; only the entry-script branch at the bottom calls process.exit
-// or app.listen.
+// Express app factory. Wires the /five-hour route with the real claudeClient +
+// transform and exposes /health. Side-effect free: starting the listener and
+// loading .env happens in start.js so tests can import { createApp } without
+// spawning a server.
 
-import 'dotenv/config';
 import express from 'express';
-import { fileURLToPath } from 'node:url';
 
 import { fetchUsage as defaultFetchUsage } from './lib/claudeClient.js';
 import { upstreamToMinimal as defaultTransform } from './lib/transform.js';
@@ -63,36 +59,4 @@ export function createApp(deps = {}) {
   });
 
   return app;
-}
-
-function isEntryScript() {
-  if (!process.argv[1]) return false;
-  try {
-    return import.meta.url === new URL(`file://${process.argv[1]}`).href;
-  } catch {
-    return false;
-  }
-}
-
-// Robust check that handles symlinks, node -e wrappers, etc.
-const invokedDirectly =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-
-if (invokedDirectly || isEntryScript()) {
-  if (!process.env.CLAUDE_ENDPOINT) {
-    process.stderr.write(
-      'fatal: CLAUDE_ENDPOINT is not set (copy .env.example to .env)\n',
-    );
-    process.exit(1);
-  }
-  const app = createApp();
-  const port = Number(process.env.PORT) || 3000;
-  // HOST defaults to 0.0.0.0 for backward compatibility. Set HOST=127.0.0.1
-  // (or your LAN IP) in .env to restrict exposure on multi-homed machines.
-  const host = process.env.HOST || '0.0.0.0';
-  app.listen(port, host, () => {
-    process.stdout.write(
-      `claude-usage-led-api listening on http://${host}:${port}\n`,
-    );
-  });
 }
