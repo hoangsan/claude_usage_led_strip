@@ -9,7 +9,7 @@
 Two-component embedded system that surfaces the user's current five-hour Claude usage on a WS2812B LED strip:
 
 1. A small **Node.js HTTP service** runs on a machine that already has the user's Claude credentials. It hits the upstream Claude OAuth usage endpoint, extracts the five-hour fields, computes the remaining-minutes-until-reset, and exposes a minimal JSON endpoint for the LED device.
-2. **ESP32 firmware** polls that endpoint at a configurable interval, drives the WS2812B strip with a proportional fill colored by the locked utilization bands (`<70%` green / `70–95%` yellow / `>95%` red), and runs three special-purpose visualizations on top: a white chasing animation while waiting for the first reading, a blinking-red error pattern on poll failure, and an "exhausted countdown" that drains LEDs from the opposite end of the strip over the remaining-minutes window.
+2. **ESP32 firmware** polls that endpoint at a configurable interval, drives the WS2812B strip with a proportional fill colored by the locked utilization bands (`<70%` green / `70–<90%` yellow / `≥90%` red), and runs three special-purpose visualizations on top: a white chasing animation while waiting for the first reading, a blinking-red error pattern on poll failure, and an "exhausted countdown" that drains LEDs from the opposite end of the strip over the remaining-minutes window.
 
 Technical approach: pin all decisions that need wall-clock arithmetic to the server side (so the firmware needs only a monotonic timer); keep the API contract tiny so the firmware does not depend on the upstream Claude schema; use the well-trodden Arduino-ESP32 / FastLED / ArduinoJson stack on the device and a dependency-light Node.js / Express service on the host.
 

@@ -66,11 +66,21 @@ void connectWifi() {
         Serial.printf("[wifi] connected, ip=%s\n",
                       WiFi.localIP().toString().c_str());
     } else {
-        Serial.println("[wifi] connect failed; will retry implicitly via poll");
+        Serial.println("[wifi] connect failed; doPoll() will retry each cycle");
     }
 }
 
 void doPoll(uint32_t now_ms) {
+    // If Wi-Fi dropped since the last poll, kick off a reconnect before
+    // fetching. WiFi.reconnect() is asynchronous, so this poll will still
+    // likely fail (-> ERROR blink); recovery lands on a subsequent poll once
+    // the STA re-associates. This is the only place the connection is
+    // re-initiated after the one-shot join in setup().
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[wifi] link down; reconnecting...");
+        WiFi.reconnect();
+    }
+
     Reading r{};
     String  err;
     const bool ok = UsageClient::fetch(r, err);
@@ -103,17 +113,32 @@ void render(const DisplayState& st, uint32_t now_ms) {
             break;
         }
         case DisplayMode::USAGE: {
-            const float util = st.last_poll.reading.utilization;
-            LedRenderer::renderProportionalFill(
-                Animations::litLedCount(util, NUM_OF_LED),
-                Animations::selectBandColor(util),
-                NUM_OF_LED);
+            const float    util = st.last_poll.reading.utilization;
+            const uint16_t lit  = Animations::litLedCount(util, NUM_OF_LED);
+            const CRGB     fill = Animations::selectBandColor(util);
+#if defined(SHOW_THRESHOLD_MARKERS) && SHOW_THRESHOLD_MARKERS
+            // Upcoming band-boundary ticks: a WARN-colored LED at the warn
+            // threshold and an EXHAUSTED-colored LED at the exhausted threshold,
+            // shown only on the not-yet-filled part of the strip (a tick the
+            // fill has reached disappears into the bar).
+            const LedRenderer::ThresholdMarker markers[2] = {
+                {Animations::markerLedIndex(WARN_THRESHOLD_PERCENT, NUM_OF_LED),
+                 WARN_QUOTA_COLOR},
+                {Animations::markerLedIndex(EXHAUSTED_THRESHOLD_PERCENT, NUM_OF_LED),
+                 EXHAUSTED_QUOTA_COLOR},
+            };
+            LedRenderer::renderProportionalFillWithMarkers(lit, fill, markers, 2,
+                                                           NUM_OF_LED);
+#else
+            LedRenderer::renderProportionalFill(lit, fill, NUM_OF_LED);
+#endif
             break;
         }
         case DisplayMode::COUNTDOWN: {
+            // Blue bar that fills 0 -> full as the five-hour reset approaches.
             LedRenderer::renderProportionalFill(
                 Animations::countdownLitCount(st.last_poll, now_ms, NUM_OF_LED),
-                EXHAUSTED_QUOTA_COLOR,
+                COUNTDOWN_COLOR,
                 NUM_OF_LED);
             break;
         }
@@ -137,8 +162,10 @@ void setup() {
     // poll. Without this the strip is dark until the first successful poll
     // and the user never sees STARTUP.
     LedRenderer::begin(NUM_OF_LED, LED_DATA_PIN);
-    g_state.mode      = DisplayMode::STARTUP;
-    g_state.last_poll = PollSnapshot{};
+    g_state.mode                 = DisplayMode::STARTUP;
+    g_state.last_poll            = PollSnapshot{};
+    g_state.consecutive_failures = 0;
+    g_state.exhausted_shown      = false;
     Serial.println("[display] STARTUP");
 
     connectWifi();

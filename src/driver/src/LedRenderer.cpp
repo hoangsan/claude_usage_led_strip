@@ -22,6 +22,7 @@ void begin(uint16_t numLed, uint8_t /*dataPin*/) {
     // LED_DATA_PIN macro from config.h. (The dataPin argument is reserved
     // for a future runtime-pin variant.)
     FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(g_leds, numLed);
+    FastLED.setBrightness(LED_BRIGHTNESS);
     FastLED.show();
 }
 
@@ -34,11 +35,36 @@ void show() {
     FastLED.show();
 }
 
-void renderProportionalFill(uint16_t litCount, CRGB color, uint16_t numLed) {
-    if (!g_leds) return;
+namespace {
+// Fill the buffer (no show): leds[0 .. litCount-1] = color, rest Black.
+void fillBuffer(uint16_t litCount, CRGB color, uint16_t numLed) {
     if (litCount > numLed) litCount = numLed;
     for (uint16_t i = 0; i < numLed; ++i) {
         g_leds[i] = (i < litCount) ? color : CRGB::Black;
+    }
+}
+}  // namespace
+
+void renderProportionalFill(uint16_t litCount, CRGB color, uint16_t numLed) {
+    if (!g_leds) return;
+    fillBuffer(litCount, color, numLed);
+    FastLED.show();
+}
+
+void renderProportionalFillWithMarkers(uint16_t               litCount,
+                                       CRGB                   fillColor,
+                                       const ThresholdMarker* markers,
+                                       uint8_t                markerCount,
+                                       uint16_t               numLed) {
+    if (!g_leds) return;
+    if (litCount > numLed) litCount = numLed;
+    fillBuffer(litCount, fillColor, numLed);
+    // Draw each tick only where it sits on the not-yet-filled background; a
+    // marker the fill has reached is left as fill color so it disappears into
+    // the bar (e.g. no stray yellow warn pixel inside a red fill).
+    for (uint8_t m = 0; m < markerCount; ++m) {
+        if (markers[m].index >= litCount && markers[m].index < numLed)
+            g_leds[markers[m].index] = markers[m].color;
     }
     FastLED.show();
 }

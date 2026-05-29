@@ -12,21 +12,40 @@ inline bool exhausted(const Reading& r) {
 
 void advance(DisplayState& st, bool ok, const Reading& r, uint32_t now_ms) {
     if (!ok) {
-        // Any failed poll, from any state, drives to ERROR. The last_poll
-        // snapshot is left as-is (it is "discarded for display purposes"
-        // but kept in memory so a future regression can inspect it).
-        st.mode = DisplayMode::ERROR;
+        // Tolerate transient failures: only after kErrorFailureThreshold
+        // consecutive failed polls do we drive to ERROR. Below the threshold
+        // we hold the current mode, so one slow/transient poll no longer
+        // paints the strip red for a whole poll interval. The last_poll
+        // snapshot is left as-is (kept in memory for inspection).
+        if (st.consecutive_failures < 0xFF) {
+            ++st.consecutive_failures;
+        }
+        if (st.consecutive_failures >= kErrorFailureThreshold) {
+            st.mode = DisplayMode::ERROR;
+        }
         return;
     }
 
-    // Successful poll: refresh the snapshot, then pick the mode.
+    // Successful poll: clear the failure streak, refresh the snapshot, then
+    // pick the mode.
+    st.consecutive_failures     = 0;
     st.last_poll.reading        = r;
     st.last_poll.received_at_ms = now_ms;
 
     if (exhausted(r)) {
-        st.mode = DisplayMode::COUNTDOWN;
+        // Hold USAGE for one poll so the operator sees the full-red bar that
+        // confirms "quota hit" before the display switches to the blue
+        // countdown. The flag persists across polls while we remain exhausted
+        // and is cleared the moment utilization drops below 100%.
+        if (!st.exhausted_shown) {
+            st.exhausted_shown = true;
+            st.mode            = DisplayMode::USAGE;
+        } else {
+            st.mode = DisplayMode::COUNTDOWN;
+        }
     } else {
-        st.mode = DisplayMode::USAGE;
+        st.exhausted_shown = false;
+        st.mode            = DisplayMode::USAGE;
     }
 }
 

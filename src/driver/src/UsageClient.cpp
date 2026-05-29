@@ -11,7 +11,11 @@
 namespace UsageClient {
 
 namespace {
-constexpr uint16_t kClientTimeoutMs = 5000;
+// Must stay >= the API server's own upstream timeout (claudeClient.js
+// DEFAULT_TIMEOUT_MS = 10 s). If the device gave up first, a merely slow (but
+// ultimately successful) upstream call would still be seen here as a failure
+// and trip the red ERROR blink. 12 s leaves headroom over the 10 s API budget.
+constexpr uint16_t kClientTimeoutMs = 12000;
 constexpr size_t   kJsonCapacity    = 256;
 }  // namespace
 

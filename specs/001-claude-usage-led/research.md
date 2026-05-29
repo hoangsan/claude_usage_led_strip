@@ -120,15 +120,16 @@ This document records the technology-selection and behavioral-default decisions 
 
 ---
 
-## 10. Countdown step granularity (FR-016)
+## 10. Countdown rendering: blue fill toward reset (FR-016)
 
-**Decision**: **Discrete per-LED on/off**, no per-LED brightness fade. At each "tick" the next LED to drop (the one currently at the trailing edge, i.e., the LED nearest the end opposite the fill end) is set to `CRGB::Black`; all other lit LEDs remain at `EXHAUSTED_QUOTA_COLOR`. The tick interval is `remaining_minutes_at_poll * 60_000 / NUM_OF_LED` ms, scheduled against the firmware's monotonic timer.
+**Decision**: The exhausted countdown is a **proportional fill in `COUNTDOWN_COLOR` (blue) that grows toward the reset**, not a red bar draining from full. The lit count is `round((kFiveHourWindowMinutes − effective_minutes) / kFiveHourWindowMinutes × NUM_OF_LED)` against the fixed 300-minute window, clamped to `[0, NUM_OF_LED]`, where `effective_minutes` is the locally decremented remaining-minutes value (clamped to the window). Discrete per-LED on/off (no brightness fade); the strip fills from the same fill end as the usage display, reusing `LedRenderer::renderProportionalFill`. Empty with a full window remaining, fully lit at reset.
 
-**Rationale**: Matches the spec's "the lit portion shrinks approximately linearly with elapsed time" wording and SC-007's "which quartile remains" testability. Discrete steps make it easy for the user to glance and count. Per-LED brightness fading would muddy that test and double the rendering complexity for no UX win — at 5-hour windows on a 30-LED strip, each LED is on for ~10 minutes, so a fade-out would itself last several minutes and be visually indistinguishable from "off".
+**Rationale**: *(supersedes the original "drain a full red bar from the end opposite the fill" design.)* Measuring against the fixed five-hour window — rather than the remaining-minutes value at poll time — makes the bar length mean the same thing no matter when the user hit 100%: "half full" always means ~2.5 h to go. The original denominator (`remaining_at_poll`) made every countdown start full and drain over whatever time happened to be left, so bar length was not comparable between sessions. Blue is a distinct, calm "you're out, waiting for reset" signal — clearly different from the red exhausted band (90–100%) and the red error blink. A growing bar reads as "access filling back up." Discrete per-LED steps stay glanceable; SC-007's quartile test still applies, now reading "how full" instead of "how much remains".
 
 **Alternatives considered**:
-- Smooth brightness fade across the whole strip: visually elegant but breaks the "lit portion shrinks" framing.
-- Tick on a fixed cadence (e.g., 1 minute) regardless of strip length: would not match strip-length to elapsed-time when remaining minutes < `NUM_OF_LED`.
+- *Original draining red bar from the opposite end (superseded)*: started full and emptied; bar length scaled to remaining-at-poll, so not comparable across sessions, and reused the red exhausted color (too close to the error blink).
+- *Smooth brightness fade*: visually elegant but breaks the discrete "how full" glance test.
+- *Keep the countdown red*: rejected — too easily confused with the exhausted band and the error blink; blue gives the state its own identity.
 
 ---
 
@@ -221,3 +222,71 @@ Caching the raw upstream payload (not the minimal payload) preserves accurate `r
 - *Hardcode `127.0.0.1` and require SSH tunneling*: safest, but breaks the documented "ESP32 reaches server over LAN" flow.
 - *Auto-detect the LAN interface*: brittle (multiple interfaces, RFC1918 ambiguity, container networks); leaves the operator unsure which IP got picked.
 - *Bind to all interfaces, document the risk in a footnote*: what we had before. The footnote was easy to miss.
+
+---
+
+## 18. Wi-Fi reconnect after the one-shot join *(post-implementation hardening)*
+
+**Decision**: `connectWifi()` runs once in `setup()`. From then on, the top of `doPoll()` checks `WiFi.status()`; if the link is down it logs and calls `WiFi.reconnect()` before attempting the fetch. The reconnect is asynchronous, so the triggering poll still fails (driving the FR-011 error blink); recovery lands on a later poll once the STA re-associates. No new config or timer — recovery is paced by `GET_USAGE_INTERVAL_MS`.
+
+**Rationale**: An always-on ambient device will outlive router reboots and RF drops. Before this, a link loss left the strip blinking ERROR forever because nothing re-initiated the connection — the original "will retry implicitly via poll" comment was wrong, since the poll path only *reads* `WiFi.status()`. Re-initiating inside `doPoll()` reuses the existing poll cadence and serial logging, keeps recovery deterministic, and makes FR-014 (automatic recovery without a power-cycle) hold for link loss, not just API errors.
+
+**Alternatives considered**:
+- *`WiFi.setAutoReconnect(true)` only*: relies on the Arduino-ESP32 core's event-driven reconnect, whose behavior varies by core version and often gives up after `NO_AP_FOUND` (the router-reboot case we care about). Reconnect would also happen silently, with no serial visibility.
+- *`WiFi.persistent(true)`*: pointless here — credentials are compile-time constants from `config.h`, so persisting them to NVS only adds flash wear.
+- *A separate sub-poll-interval reconnect timer in `loop()`*: snappier recovery, but more state for a device where a multi-minute recovery is invisible to the user. Deferred unless faster recovery is wanted.
+
+---
+
+## 19. Global brightness scaler (`LED_BRIGHTNESS`) *(post-implementation addition)*
+
+**Decision**: Add `LED_BRIGHTNESS` (`uint8_t`, 0–255, default `50`) to `config.h` and apply it once via `FastLED.setBrightness(LED_BRIGHTNESS)` in `LedRenderer::begin()`.
+
+**Rationale**: At full output a WS2812B strip is harsh as an ambient indoor display, and full brightness draws the most current. A single global scaler dims every state — all three quota bands, the startup chase, and the error blink — proportionally, with no change to the configured colors or thresholds, and reduces peak current draw alongside it. `setBrightness` is FastLED's built-in scaler, so this is one call at init rather than per-pixel math.
+
+**Alternatives considered**:
+- *Per-color brightness*: more knobs, no real benefit; the bands already encode intent through hue.
+- *Runtime brightness from the API response*: would avoid a re-flash to retune, but adds protocol surface and firmware state for a value operators set once. Deferred; noted as a possible follow-up.
+
+---
+
+## 20. Threshold marker ticks (`SHOW_THRESHOLD_MARKERS`) *(post-implementation addition)*
+
+**Decision**: When `SHOW_THRESHOLD_MARKERS` is set (default `1`), the USAGE display draws two "upcoming threshold" ticks: a `WARN_QUOTA_COLOR` pixel at the warn-threshold position and an `EXHAUSTED_QUOTA_COLOR` pixel at the exhausted-threshold position, but **only where each tick sits on the not-yet-filled background** (its index `≥ litCount`). A tick the fill has reached is left as fill color, so it disappears into the bar. A tick's index is `Animations::markerLedIndex(percent, NUM_OF_LED)` = `litLedCount(percent, NUM_OF_LED) - 1` — the topmost LED that would be lit at exactly that utilization (e.g. 70% → index 111, 90% → 143 on a 160-LED strip). The renderer fills the buffer, draws the surviving marker pixels, then does a single `show()`. Markers appear only in the USAGE mode; STARTUP, ERROR, and COUNTDOWN are untouched. Set the macro to `0` to disable.
+
+**Rationale**: Reusing `litLedCount` for the position guarantees the tick lands exactly where the band color would change, so the marker stays correct under any operator-chosen thresholds or strip length with no extra config. Suppressing a tick once the fill reaches it makes the ticks read purely as *upcoming* boundaries on the dark background — and avoids the one visible wart of the original on-top approach: a stray yellow warn pixel stranded inside a fully red (exhausted) bar. This is still a thin overlay on top of the fill: FR-008/FR-009 fill semantics are unchanged, and `markerLedIndex` is unit-tested alongside `litLedCount`.
+
+**Alternatives considered**:
+- *Draw markers on top of the fill (original implementation, now superseded)*: simpler guard (`index < numLed` only), but left a yellow warn tick visible inside the red fill once utilization passed the exhausted threshold — the wart this change removes.
+- *Markers in a fixed contrasting color (e.g. white)*: always visible regardless of fill, but visually noisier and decouples the tick from the band it marks. Left as a one-line retune for operators who want it.
+- *Render the markers in COUNTDOWN too*: rejected — the countdown is a blue reset-fill with its own semantics; band ticks there would mislead.
+
+---
+
+## 21. Half-open band intervals *(post-implementation refinement)*
+
+**Decision**: `selectBandColor` changed the upper edge of the WARN band from inclusive to exclusive, making both bands half-open `[lower, upper)`:
+- `util < WARN_THRESHOLD_PERCENT` → NORMAL,
+- `WARN_THRESHOLD_PERCENT ≤ util < EXHAUSTED_THRESHOLD_PERCENT` → WARN,
+- `util ≥ EXHAUSTED_THRESHOLD_PERCENT` → EXHAUSTED.
+
+Previously the WARN band was closed on both ends (`WARN ≤ util ≤ EXHAUSTED`), so EXHAUSTED only began *above* the threshold. The only behavioral change is at `util == EXHAUSTED_THRESHOLD_PERCENT` exactly: WARN → EXHAUSTED.
+
+**Rationale**: The exhausted threshold marker (research §20) sits at the topmost LED lit at exactly `EXHAUSTED_THRESHOLD_PERCENT`. Under the old closed-interval rule the fill at that point was still WARN-colored, leaving a lone red marker pixel atop a yellow bar — the band flip lagged the marker by one threshold step. Half-open intervals make the EXHAUSTED band start *at* the threshold, so reaching the red tick turns the bar red and the tick blends into its band. The WARN lower bound stays inclusive, so the warn tick was already consistent. The `0 < WARN ≤ EXHAUSTED ≤ 100` constraint is unchanged; when `WARN == EXHAUSTED` the WARN band is simply empty (a two-band normal/exhausted scheme). Boundary cases are unit-tested (`test_band_warn_just_below_ninety_five`, `test_band_exhausted_at_ninety_five`).
+
+**Alternatives considered**:
+- *Move the marker instead of changing the band* (place the exhausted tick one LED higher, at the first EXHAUSTED pixel): keeps the old closed band but makes the tick no longer mark the threshold's own position; more surprising than fixing the interval.
+- *Leave it closed*: the one-pixel mismatch is cosmetic, but the inconsistency was exactly what the marker made visible.
+
+---
+
+## 22. One-poll "quota hit" confirmation before COUNTDOWN *(post-implementation addition)*
+
+**Decision**: When a successful poll first reports `utilization ≥ 100 %`, `DisplayController::advance` holds `USAGE` for that single poll so the operator sees the full-red proportional bar (every LED in `EXHAUSTED_QUOTA_COLOR`, with the threshold ticks blended in) as the "you just hit 100%" confirmation. The next exhausted poll flips to `COUNTDOWN`. A new `bool exhausted_shown` field in `DisplayState` is the gate: set on the first exhausted success, cleared whenever utilization drops below 100 %. The flag lives in RAM only — a reboot while still exhausted replays the red confirmation once, by design.
+
+**Rationale**: Previously the controller jumped straight from `USAGE` to the blue `COUNTDOWN` at the moment of exhaustion, which skipped the most informative single frame in the device's life: "the bar just filled up". The user lost the visual evidence that the strip actually *reached* full before the meaning changed. Holding the red bar for one poll cycle (one `GET_USAGE_INTERVAL_MS`, default 5 min) is enough to register as a "quota hit" moment without significantly delaying the blue countdown, and it tightly couples the change in color to the user-meaningful event (hitting 100%) rather than to an arbitrary state-machine edge. Rearming on drop-below-100% means a window that climbs back to 100% later (e.g. after a brief reset window or upstream correction) replays the same confirmation, so the behavior is consistent across episodes rather than one-shot for the device's lifetime.
+
+**Alternatives considered**:
+- *Fixed-duration hold (3 s / 5 s) via a millis() timer*: independent of poll cadence and would also work, but adds a second timer to the controller and decouples the red bar from the poll that caused it. Tying the hold to "one poll cycle" keeps the state machine purely event-driven on poll completions and matches the existing tolerance-counter style.
+- *Persist `exhausted_shown` in NVS so reboots don't re-flash red*: rejected as gratuitous flash wear for one frame of behavior. A fresh boot at 100% replaying the red bar is also arguably *better* (the user just power-cycled; the confirmation is now informative again rather than redundant). Keep state RAM-only, matching the rest of `DisplayState`.
+- *Skip the confirmation entirely (original behavior)*: the change exists precisely because the instant red→blue transition hid the moment of exhaustion.

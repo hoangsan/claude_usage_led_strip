@@ -30,7 +30,7 @@
 #define WARN_THRESHOLD_PERCENT       70
 #endif
 #ifndef EXHAUSTED_THRESHOLD_PERCENT
-#define EXHAUSTED_THRESHOLD_PERCENT  95
+#define EXHAUSTED_THRESHOLD_PERCENT  90
 #endif
 
 #endif  // __cplusplus

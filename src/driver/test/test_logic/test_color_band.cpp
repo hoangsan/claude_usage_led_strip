@@ -1,9 +1,9 @@
 // Unit tests for Animations::selectBandColor.
 //
-// Boundary semantics (data-model.md §5):
-//   util  < 70.0   -> NORMAL
-//   70.0 <= util <= 95.0  -> WARN
-//   util  > 95.0   -> EXHAUSTED
+// Boundary semantics (data-model.md §5) — half-open bands:
+//   util  < 70.0          -> NORMAL
+//   70.0 <= util < 90.0    -> WARN
+//   util  >= 90.0          -> EXHAUSTED
 //
 // The three quota-color macros are supplied via platformio.ini build_flags
 // in the [env:native] block so the assertions and the production code see
@@ -35,14 +35,19 @@ void test_band_warn_at_eighty(void) {
     const CRGB expected = WARN_QUOTA_COLOR;
     TEST_ASSERT_TRUE(expected == Animations::selectBandColor(80.0f));
 }
-void test_band_warn_at_ninety_five(void) {
+void test_band_warn_just_below_ninety(void) {
     const CRGB expected = WARN_QUOTA_COLOR;
-    TEST_ASSERT_TRUE(expected == Animations::selectBandColor(95.0f));
+    TEST_ASSERT_TRUE(expected == Animations::selectBandColor(89.99f));
 }
 
-void test_band_exhausted_just_above_ninety_five(void) {
+void test_band_exhausted_at_ninety(void) {
+    // Upper bound is exclusive into WARN: exactly the threshold is EXHAUSTED.
     const CRGB expected = EXHAUSTED_QUOTA_COLOR;
-    TEST_ASSERT_TRUE(expected == Animations::selectBandColor(95.01f));
+    TEST_ASSERT_TRUE(expected == Animations::selectBandColor(90.0f));
+}
+void test_band_exhausted_just_above_ninety(void) {
+    const CRGB expected = EXHAUSTED_QUOTA_COLOR;
+    TEST_ASSERT_TRUE(expected == Animations::selectBandColor(90.01f));
 }
 void test_band_exhausted_at_hundred(void) {
     const CRGB expected = EXHAUSTED_QUOTA_COLOR;

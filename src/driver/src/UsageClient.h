@@ -19,7 +19,7 @@ struct Reading {
 
 namespace UsageClient {
 
-// Performs an HTTP GET against API_ENDPOINT with a 5 s timeout, parses the
+// Performs an HTTP GET against API_ENDPOINT with a 12 s timeout, parses the
 // JSON body, and validates per data-model.md §2. Returns true on success and
 // populates `out`. On any failure (network, non-2xx, deserialize, missing
 // field, type mismatch, out-of-range) returns false and writes a short

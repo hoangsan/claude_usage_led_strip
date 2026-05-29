@@ -29,9 +29,28 @@ void show();
 
 // --- Render primitives -----------------------------------------------------
 
+// A single threshold tick: paint `color` at pixel `index`, on top of the fill.
+struct ThresholdMarker {
+    uint16_t index;
+    CRGB     color;
+};
+
 // Light leds[0 .. litCount-1] in `color`, blacking the rest, then show().
 // Reused for both USAGE proportional fill (US1) and COUNTDOWN (US4).
 void renderProportionalFill(uint16_t litCount, CRGB color, uint16_t numLed);
+
+// As renderProportionalFill, but after filling, draws each marker pixel in its
+// own color — only where the pixel is not yet filled (index >= litCount), i.e.
+// on the unlit background — before a single show(). A marker the fill has
+// already reached is left as fill color, so it disappears into the bar. Markers
+// with index >= numLed are also skipped. Used by USAGE to mark the band
+// boundaries (e.g. a yellow tick at the warn threshold, red at exhausted) as
+// "upcoming threshold" ticks ahead of the fill.
+void renderProportionalFillWithMarkers(uint16_t                litCount,
+                                       CRGB                    fillColor,
+                                       const ThresholdMarker*  markers,
+                                       uint8_t                 markerCount,
+                                       uint16_t                numLed);
 
 // A 3-LED comet at position (frame_idx % numLed) using `color` as the base
 // hue, with brightness ramp 255 / 128 / 64 applied on top; all other pixels

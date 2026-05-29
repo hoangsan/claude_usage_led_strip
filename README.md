@@ -3,15 +3,16 @@
 An ambient WS2812B LED strip that shows your current **Claude usage** at a glance. No more switching to the terminal to check `/usage` — you can see how much of your five-hour window is left from across the room.
 
 <!-- Drop your end-product photo here. -->
-![Finished build on the desk](docs/images/hero.jpg)
+
+![Finished build on the desk](docs/images/f_o_d.jpg)
 
 ## What it does
 
 - A proportional fill of the strip tracks your five-hour utilization in real time.
-- The fill is color-coded across three bands — by default **green / amber / red** at **&lt;70 % / 70–95 % / &gt;95 %**.
+- The fill is color-coded across three bands — by default **green / amber / red** at **&lt;70 % / 70–&lt;90 % / ≥90 %**.
 - While the device is booting and waiting for its first reading, the strip plays a **white chasing animation** so you can tell it's alive.
 - If the device can't reach the API server, the strip **blinks red** so you don't trust a stale value.
-- When you hit **100 %**, the lit LEDs **drain off** toward the opposite end of the strip over the remaining time until your five-hour reset — so you also see, at a glance, how long until you're back.
+- When you hit **100 %**, the strip switches to a **blue bar that fills up** as your five-hour reset approaches — near-empty when the reset is far off, full right as your quota comes back.
 
 Every visible state is operator-configurable — the band thresholds, all five colors, the strip length, the polling interval, the API URL.
 
@@ -37,12 +38,13 @@ A small Node.js server runs on a machine that's already signed into Claude. It h
 
 - An **ESP32** dev board (WROOM-32, S2, S3, or C3 — any of them work)
 - A **WS2812B LED strip** (anything from a handful up to a couple hundred LEDs; **160** is the default in `config.example.h`)
-- A **5 V power supply** sized for your strip. This project only ever lights one band color at a time (green/yellow/red), so peak draw is far below the all-white textbook figure — for the default 160-LED strip a **5 V / 4 A** supply is comfortable (~2 A peak when the strip goes fully red at the exhausted-quota state, plus margin). Smaller strips need proportionally less; a 1 A brick will sag once the strip lights fully.
+- A **5 V power supply** sized for your strip. This project only ever lights one band color at a time (green/yellow/red), so peak draw is far below the all-white textbook figure — for the default 160-LED strip a **5 V / 4 A** supply is comfortable (~2 A peak when the strip is fully lit one color — e.g. the blue countdown bar at reset — plus margin). Smaller strips need proportionally less; a 1 A brick will sag once the strip lights fully.
 - A few **jumper wires**, optionally a 470 Ω resistor on the data line and a 1000 µF capacitor across the strip's 5 V/GND for stability
 - A USB cable to flash the ESP32
 
 <!-- Drop your wiring photo or diagram here. -->
-![Hardware wiring](docs/images/hardware.jpg)
+
+![Hardware wiring](docs/images/w.jpg)
 
 ### Software
 
@@ -112,12 +114,13 @@ cp include/config.example.h include/config.h
 
 Open `include/config.h` and fill in:
 
-| Setting | What to put |
-|---|---|
-| `WIFI_SSID` / `WIFI_PASSWORD` | Your local Wi-Fi |
-| `API_ENDPOINT` | `http://<host-LAN-ip>:3000/five-hour` (the machine running PM2 in step 2) |
-| `NUM_OF_LED` | The actual length of your strip |
-| `LED_DATA_PIN` | The GPIO you used (default 5) |
+| Setting                       | What to put                                                               |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `WIFI_SSID` / `WIFI_PASSWORD` | Your local Wi-Fi                                                          |
+| `API_ENDPOINT`                | `http://<host-LAN-ip>:3000/five-hour` (the machine running PM2 in step 2) |
+| `NUM_OF_LED`                  | The actual length of your strip                                           |
+| `LED_DATA_PIN`                | The GPIO you used (default 5)                                             |
+| `LED_BRIGHTNESS`              | How bright the strip glows, `0`–`255` (default 50)                        |
 
 You can also retune the color bands and any of the five colors here — see the **Customising the look** section below.
 
@@ -145,16 +148,19 @@ The strip should chase white for a second or two, then settle into the proportio
 
 Everything visible is in `src/driver/include/config.h`. The most-used knobs:
 
-| `#define` | Default | What it does |
-|---|---|---|
-| `WARN_THRESHOLD_PERCENT` | `70` | Where the strip turns from green into amber. |
-| `EXHAUSTED_THRESHOLD_PERCENT` | `95` | Where the strip turns from amber into red. |
-| `NORMAL_QUOTA_COLOR` | `CRGB(0x00, 0xCC, 0x00)` (green) | Color below the warn threshold. |
-| `WARN_QUOTA_COLOR` | `CRGB(0xFF, 0xA5, 0x00)` (amber) | Color in the warn band (inclusive on both ends). |
-| `EXHAUSTED_QUOTA_COLOR` | `CRGB(0xCC, 0x00, 0x00)` (red) | Color above the exhausted threshold. Also the countdown color. |
-| `ERROR_COLOR` | `CRGB(0xCC, 0x00, 0x00)` (red) | Color of the failure blink. Set this to something distinct (e.g. magenta) if you want "I can't reach the server" and "you're at 100 %" to look different. |
-| `STARTUP_COLOR` | `CRGB(0xFF, 0xFF, 0xFF)` (white) | Base color of the boot chase. |
-| `GET_USAGE_INTERVAL_MS` | `300000` (5 min) | Poll cadence. Don't go below 10 000 (10 s). |
+| `#define`                     | Default                          | What it does                                                                                                                                                                                                                                               |
+| ----------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WARN_THRESHOLD_PERCENT`      | `70`                             | Where the strip turns from green into amber.                                                                                                                                                                                                               |
+| `EXHAUSTED_THRESHOLD_PERCENT` | `90`                             | Where the strip turns from amber into red.                                                                                                                                                                                                                 |
+| `SHOW_THRESHOLD_MARKERS`      | `1`                              | `1` shows a tick at each threshold during the usage display — an amber LED at the warn threshold and a red LED at the exhausted threshold — drawn only on the not-yet-filled part of the strip (each disappears once the fill reaches it). `0` hides them. |
+| `NORMAL_QUOTA_COLOR`          | `CRGB(0x00, 0xCC, 0x00)` (green) | Color below the warn threshold.                                                                                                                                                                                                                            |
+| `WARN_QUOTA_COLOR`            | `CRGB(0xFF, 0xA5, 0x00)` (amber) | Color in the warn band `[70%, 90%)` — lower bound inclusive, upper exclusive.                                                                                                                                                                              |
+| `EXHAUSTED_QUOTA_COLOR`       | `CRGB(0xCC, 0x00, 0x00)` (red)   | Color of the in-window exhausted band (95–100 %).                                                                                                                                                                                                          |
+| `COUNTDOWN_COLOR`             | `CRGB(0x00, 0x00, 0xCC)` (blue)  | Color of the reset-countdown bar shown once you hit 100 %. Distinct from the red band so "waiting for reset" reads differently from "nearly out".                                                                                                          |
+| `ERROR_COLOR`                 | `CRGB(0xCC, 0x00, 0x00)` (red)   | Color of the failure blink. Set this to something distinct (e.g. magenta) if you want "I can't reach the server" and "you're at 100 %" to look different.                                                                                                  |
+| `STARTUP_COLOR`               | `CRGB(0xFF, 0xFF, 0xFF)` (white) | Base color of the boot chase.                                                                                                                                                                                                                              |
+| `LED_BRIGHTNESS`              | `50`                             | Global brightness scaler applied to every pixel, `0` (off) to `255` (full). Lower it to dim the whole strip — all bands and animations scale together, and current draw drops with it.                                                                     |
+| `GET_USAGE_INTERVAL_MS`       | `300000` (5 min)                 | Poll cadence. Don't go below 10 000 (10 s).                                                                                                                                                                                                                |
 
 Re-flash after editing and the new look kicks in immediately.
 
@@ -163,26 +169,30 @@ Full reference: [`src/driver/include/README.md`](src/driver/include/README.md).
 ## Verifying everything works
 
 <!-- Drop a picture of the strip in each state (green / amber / red / blink / chase / countdown) here. -->
-![Strip running through its states](docs/images/states.jpg)
+
+|                 |                                                                          |                    |                                                                     |
+| --------------- | ------------------------------------------------------------------------ | ------------------ | ------------------------------------------------------------------- |
+| Normal quote    | <img src="docs/images/s_g.jpg" alt="NORMAL_QUOTA_COLOR" width="400"/>    | Warn quote         | <img src="docs/images/s_y.jpg" alt="WARN_QUOTA_COLOR" width="400"/> |
+| Exhausted quote | <img src="docs/images/s_r.jpg" alt="EXHAUSTED_QUOTA_COLOR" width="400"/> | Countdown to reset | <img src="docs/images/s_b.jpg" alt="COUNTDOWN_COLOR" width="400"/>  |
 
 Quick checks:
 
 - **Strip lights green / amber / red proportionally** — point it at the live server and watch your strip after each five-hour interval.
 - **Blink on failure** — `pm2 stop claude-usage-api`. Within one polling interval the strip should switch to a 1 Hz red blink. `pm2 start claude-usage-api` and the next poll restores the normal display.
 - **Chase on boot** — power-cycle the ESP32 with the server stopped. The white comet should run continuously.
-- **Countdown** — point `API_ENDPOINT` at a small mock returning `{"utilization":100,"remaining_minutes":2}` and watch the strip drain from the opposite end over ~2 minutes.
+- **Countdown** — point `API_ENDPOINT` at a small mock returning `{"utilization":100,"remaining_minutes":150}` and the blue bar lights to ~half; change `remaining_minutes` to `0` for a full strip or `300` for an empty one (the fill is measured against the fixed five-hour window).
 
 Full bench-test protocol is in [`specs/001-claude-usage-led/quickstart.md`](specs/001-claude-usage-led/quickstart.md).
 
 ## Troubleshooting
 
-| Symptom | Most likely cause | Fix |
-|---|---|---|
-| Strip never leaves the white chase | ESP32 can't reach the server | Check `API_ENDPOINT` (IP, port, path), make sure PM2 is bound to `0.0.0.0:3000`, try `curl` from another machine on the LAN |
-| Strip blinks red forever | Server is reachable but upstream is failing | `pm2 logs claude-usage-api` — usually means your Claude token has expired (`claude auth login` again on the host) |
-| Wrong colors (red/green swapped) | WS2812B clone with a different chipset order | In `LedRenderer.cpp`, swap `GRB` for `RGB` in `FastLED.addLeds<WS2812B, …>(…)` |
-| First LED flickers, rest stay dark | Power supply sag or wrong data pin | Verify the data pin matches `LED_DATA_PIN`, confirm the supply can handle peak current, add the capacitor |
-| Server tests fail with "fetch is not defined" | Node < 18 | Upgrade to Node 20 LTS |
+| Symptom                                       | Most likely cause                            | Fix                                                                                                                         |
+| --------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Strip never leaves the white chase            | ESP32 can't reach the server                 | Check `API_ENDPOINT` (IP, port, path), make sure PM2 is bound to `0.0.0.0:3000`, try `curl` from another machine on the LAN |
+| Strip blinks red forever                      | Server is reachable but upstream is failing  | `pm2 logs claude-usage-api` — usually means your Claude token has expired (`claude auth login` again on the host)           |
+| Wrong colors (red/green swapped)              | WS2812B clone with a different chipset order | In `LedRenderer.cpp`, swap `GRB` for `RGB` in `FastLED.addLeds<WS2812B, …>(…)`                                              |
+| First LED flickers, rest stay dark            | Power supply sag or wrong data pin           | Verify the data pin matches `LED_DATA_PIN`, confirm the supply can handle peak current, add the capacitor                   |
+| Server tests fail with "fetch is not defined" | Node < 18                                    | Upgrade to Node 20 LTS                                                                                                      |
 
 ## Project structure
 
