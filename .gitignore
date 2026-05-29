@@ -1,0 +1,36 @@
+# --- Node.js / API server ---
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+.npm
+
+# --- Environment & secrets (NEVER commit these) ---
+.env
+.env.*
+!.env.example
+# Operator's filled-in ESP32 config — keep config.example.h as the template
+src/driver/include/config.h
+
+# --- PlatformIO / ESP32 firmware ---
+src/driver/.pio/
+src/driver/.pioenvs/
+src/driver/.piolibdeps/
+src/driver/.vscode/
+src/driver/lib/readme.txt
+*.elf
+*.bin
+*.hex
+
+# --- Editors & OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Per-user Claude Code state ---
+.claude/
